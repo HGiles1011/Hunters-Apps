@@ -9,7 +9,6 @@ creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", sco
 client = gspread.authorize(creds)
 
 # Open the Google Sheet once and store it
-# This avoids re-opening the sheet object on every script rerun, though gspread might internally cache
 @st.cache_resource
 def get_worksheet():
     """Authorizes and opens the Google Sheet worksheet, cached globally."""
@@ -18,7 +17,7 @@ def get_worksheet():
         return sheet.worksheet("Inventory")
     except Exception as e:
         st.error(f"❌ Error connecting to Google Sheet: {e}")
-        st.stop() # Stop the app if connection fails
+        st.stop()
         return None
 
 inventory_ws = get_worksheet() # Get the worksheet object once
@@ -28,12 +27,11 @@ inventory_ws = get_worksheet() # Get the worksheet object once
 def get_inventory_data():
     """Fetches all records and header from the Google Sheet, with caching."""
     if inventory_ws is None:
-        return [], [] # Handle case where worksheet connection failed
+        return [], []
 
     try:
-        # Fetching all records is efficient as it's one API call for all data
         records = inventory_ws.get_all_records()
-        header = inventory_ws.row_values(1) # This is a separate API call. Consider if header changes often.
+        header = inventory_ws.row_values(1)
         return records, header
     except Exception as e:
         st.error(f"❌ Error loading inventory from Google Sheet: {e}")
@@ -43,9 +41,23 @@ def clear_inventory_cache():
     """Clears the cache for inventory data."""
     st.cache_data.clear()
 
+# --- Initialize session state for controlling data refresh ---
+if 'refresh_data_needed' not in st.session_state:
+    st.session_state.refresh_data_needed = False
+
 # --- Streamlit UI ---
 st.set_page_config(page_title="Card Inventory Manager", layout="wide")
 st.title("📇 Trading Card Inventory App")
+
+# --- Conditional data fetching ---
+# Only fetch data if refresh_data_needed is True or if it's the initial load
+# This is where we control the API call for reading data
+if st.session_state.refresh_data_needed:
+    clear_inventory_cache() # Ensure cache is cleared before fetching
+    st.session_state.refresh_data_needed = False # Reset the flag
+    # The next call to get_inventory_data() will hit the API
+records, header = get_inventory_data()
+
 
 tabs = st.tabs(["➕ Add New Card", "✏️ Update Sale Info", "📊 Profit Tracker"])
 
@@ -141,21 +153,17 @@ with tabs[0]:
                     int(lot_number)
                 ]
                 try:
-                    # Append row is a single API call
-                    if inventory_ws: # Ensure worksheet is available
+                    if inventory_ws:
                         inventory_ws.append_row(row)
                         st.success("✅ Card entry added to Google Sheet!")
-                        clear_inventory_cache() # Clear cache so next read fetches fresh data
-                        st.rerun() # Rerun to refresh the data displayed in other tabs
+                        st.session_state.refresh_data_needed = True # Set flag to refresh data on next rerun
+                        st.rerun() # Force a single rerun to apply the data refresh
                 except Exception as e:
                     st.error(f"❌ Failed to write to Google Sheet: {e}")
 
 # TAB 2: Update Sale Info
 with tabs[1]:
     st.header("✏️ Update Sale Info")
-
-    # This call is cached, so it's efficient if within TTL
-    records, header = get_inventory_data()
 
     card_options = ["--- Select a Card to Update ---"]
     card_gsheet_row_map = {}
@@ -164,7 +172,7 @@ with tabs[1]:
         st.info("No cards found in inventory to update. Add cards using the '➕ Add New Card' tab first.")
     else:
         for i, record in enumerate(records):
-            gsheet_row_number = i + 2 # Google Sheets rows are 1-indexed, and header is row 1
+            gsheet_row_number = i + 2
 
             player = record.get('Player Name', 'N/A')
             year = record.get('Year', 'N/A')
@@ -198,18 +206,12 @@ with tabs[1]:
     initial_sold_price = 0.0
     initial_sale_takeaway = 0.0
     selected_gsheet_row_index = None
-    selected_record_from_cache = None # Store the full record from cache
+    selected_record_from_cache = None
 
     if selected_card_display != "--- Select a Card to Update ---":
         selected_gsheet_row_index = card_gsheet_row_map.get(selected_card_display)
         if selected_gsheet_row_index:
-            # OPTIMIZATION: Retrieve the record directly from the cached 'records' list
-            # instead of doing a new inventory_ws.row_values() call.
-            # This assumes 'records' is comprehensive and up-to-date (which it is, due to cache clear on update).
             try:
-                # records is 0-indexed for list, but Google Sheet rows are 1-indexed
-                # records[i] corresponds to gsheet_row_number = i + 2
-                # So, selected_gsheet_row_index - 2 gives the list index
                 selected_record_from_cache = records[selected_gsheet_row_index - 2]
 
                 if 'Sold Date' in selected_record_from_cache and selected_record_from_cache['Sold Date']:
@@ -219,19 +221,17 @@ with tabs[1]:
                         pass
                 if 'Sold Price' in selected_record_from_cache and selected_record_from_cache['Sold Price']:
                     try:
-                        # Use safe_float_conversion here too for robustness
                         initial_sold_price = safe_float_conversion(selected_record_from_cache['Sold Price'])
                     except ValueError:
                         pass
                 if 'Takeaway' in selected_record_from_cache and selected_record_from_cache['Takeaway']:
                     try:
-                        # Use safe_float_conversion here too for robustness
                         initial_sale_takeaway = safe_float_conversion(selected_record_from_cache['Takeaway'])
                     except ValueError:
                         pass
             except IndexError:
                 st.warning("Selected card record not found in cache. This might indicate a data sync issue.")
-                selected_gsheet_row_index = None # Reset to prevent update
+                selected_gsheet_row_index = None
             except Exception as e:
                 st.error(f"Error pre-filling data from cache: {e}")
                 selected_gsheet_row_index = None
@@ -241,49 +241,47 @@ with tabs[1]:
         st.info("Please select a card from the dropdown to view/update its sale info.")
 
     if selected_gsheet_row_index:
-        sold_date = st.date_input("Sold Date", value=initial_sold_date)
-        sold_price = st.number_input("Sold Price ($)", min_value=0.0, format="%.2f", value=initial_sold_price)
-        sale_takeaway = st.number_input("Takeaway from Sale ($)", min_value=0.0, format="%.2f", value=initial_sale_takeaway)
+        with st.form(key='update_sale_form'): # Wrap update widgets in a form
+            sold_date = st.date_input("Sold Date", value=initial_sold_date)
+            sold_price = st.number_input("Sold Price ($)", min_value=0.0, format="%.2f", value=initial_sold_price)
+            sale_takeaway = st.number_input("Takeaway from Sale ($)", min_value=0.0, format="%.2f", value=initial_sale_takeaway)
 
-        if st.button("Update Sale Info", key='update_sale_button'):
-            if inventory_ws is None: # Safety check
-                st.error("❌ Google Sheet connection not established. Please refresh the app.")
-            else:
-                try:
-                    # Find column indices dynamically using the header from cached data
-                    sold_date_col = header.index('Sold Date') + 1
-                    sold_price_col = header.index('Sold Price') + 1
-                    takeaway_col = header.index('Takeaway') + 1
+            update_submitted = st.form_submit_button("Update Sale Info")
 
-                    # Prepare the values to update
-                    values_to_update = [
-                        (selected_gsheet_row_index, sold_date_col, str(sold_date)),
-                        (selected_gsheet_row_index, sold_price_col, f"${sold_price:.2f}"),
-                        (selected_gsheet_row_index, takeaway_col, f"${sale_takeaway:.2f}")
-                    ]
+            if update_submitted:
+                if inventory_ws is None:
+                    st.error("❌ Google Sheet connection not established. Please refresh the app.")
+                else:
+                    try:
+                        sold_date_col = header.index('Sold Date') + 1
+                        sold_price_col = header.index('Sold Price') + 1
+                        takeaway_col = header.index('Takeaway') + 1
 
-                    # Convert to gspread.Cell objects for update_cells
-                    cells_to_update = []
-                    for row, col, value in values_to_update:
-                        cells_to_update.append(gspread.Cell(row, col, value))
+                        values_to_update = [
+                            (selected_gsheet_row_index, sold_date_col, str(sold_date)),
+                            (selected_gsheet_row_index, sold_price_col, f"${sold_price:.2f}"),
+                            (selected_gsheet_row_index, takeaway_col, f"${sale_takeaway:.2f}")
+                        ]
 
-                    # Perform the batch update (ONE API CALL)
-                    inventory_ws.update_cells(cells_to_update)
+                        cells_to_update = []
+                        for row, col, value in values_to_update:
+                            cells_to_update.append(gspread.Cell(row, col, value))
 
-                    clean_display_name = selected_card_display.split(' (Row ')[0]
-                    st.success(f"✅ Sale info updated for {clean_display_name}!")
-                    clear_inventory_cache() # Clear cache after updating to reflect changes
-                    st.rerun() # Rerun to refresh UI and updated data
-                except ValueError as ve:
-                    st.error(f"❌ Error: Required column not found in Google Sheet. Please ensure 'Sold Date', 'Sold Price', and 'Takeaway' columns exist. Details: {ve}")
-                except Exception as e:
-                    st.error(f"❌ Error updating sale info: {e}")
+                        inventory_ws.update_cells(cells_to_update)
+
+                        clean_display_name = selected_card_display.split(' (Row ')[0]
+                        st.success(f"✅ Sale info updated for {clean_display_name}!")
+                        st.session_state.refresh_data_needed = True # Set flag to refresh data on next rerun
+                        st.rerun() # Force a single rerun
+                    except ValueError as ve:
+                        st.error(f"❌ Error: Required column not found in Google Sheet. Please ensure 'Sold Date', 'Sold Price', and 'Takeaway' columns exist. Details: {ve}")
+                    except Exception as e:
+                        st.error(f"❌ Error updating sale info: {e}")
 
 # TAB 3: Profit Tracker
 with tabs[2]:
     st.header("📊 Profit Tracker")
-    # This call is cached, so it's efficient if within TTL
-    records, _ = get_inventory_data()
+    records, _ = get_inventory_data() # This call is now controlled by refresh_data_needed flag
 
     if not records:
         st.info("No records to calculate profit from.")
@@ -295,7 +293,6 @@ with tabs[2]:
             total_profit = 0.0
             for r in records:
                 if r.get('Sold Date') and r.get('Takeaway') is not None and r.get('Purchase Price') is not None:
-                    # Use the safe conversion for all values
                     takeaway_val = safe_float_conversion(r['Takeaway'])
                     purchase_price_val = safe_float_conversion(r['Purchase Price'])
                     total_profit += (takeaway_val - purchase_price_val)
