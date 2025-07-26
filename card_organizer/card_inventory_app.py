@@ -131,7 +131,7 @@ elif selected_tab == "✏️ Update Sale Info":
     else:
         for i, record in enumerate(records):
             gsheet_row_number = i + 2
-            display_name = f"{record.get('Player Name', 'N/A')} - {record.get('Year', 'N/A')} - {record.get('Set Name', 'N/A')} (Row {gsheet_row_number})"
+            display_name = f"{record.get('Player Name', 'N/A')} - {record.get('Year', 'N/A')} - {record.get('Set Name', 'N/A')} - {record.get('Numbered', 'N/A')} - {record.get('Purchase Price', 'N/A')} (Row {gsheet_row_number})"
             card_options.append(display_name)
             card_gsheet_row_map[display_name] = gsheet_row_number
 
