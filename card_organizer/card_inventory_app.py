@@ -2,6 +2,7 @@ import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date
+import pandas as pd # Import pandas for easy CSV generation
 
 # --- Google Sheets Setup (Keep as is) ---
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -23,7 +24,9 @@ def get_worksheet():
 inventory_ws = get_worksheet() # Get the worksheet object once
 
 # --- Cache the data reading ---
-@st.cache_data(ttl=60) # Cache for 60 seconds. Adjust TTL based on how frequently data changes.
+# Changed: Removed ttl=60. Data will now be cached until the next rerun
+# or until clear_inventory_cache() is explicitly called.
+@st.cache_data
 def get_inventory_data():
     """Fetches all records and header from the Google Sheet, with caching."""
     if inventory_ws is None:
@@ -50,12 +53,9 @@ st.set_page_config(page_title="Card Inventory Manager", layout="wide")
 st.title("📇 Trading Card Inventory App")
 
 # --- Conditional data fetching ---
-# Only fetch data if refresh_data_needed is True or if it's the initial load
-# This is where we control the API call for reading data
 if st.session_state.refresh_data_needed:
     clear_inventory_cache() # Ensure cache is cleared before fetching
     st.session_state.refresh_data_needed = False # Reset the flag
-    # The next call to get_inventory_data() will hit the API
 records, header = get_inventory_data()
 
 
@@ -281,8 +281,14 @@ with tabs[1]:
 # TAB 3: Profit Tracker
 with tabs[2]:
     st.header("📊 Profit Tracker")
-    records, _ = get_inventory_data() # This call is now controlled by refresh_data_needed flag
 
+    # Add a refresh button - this will trigger an API call to get fresh data
+    if st.button("🔄 Refresh Profit Data"):
+        st.session_state.refresh_data_needed = True
+        st.rerun()
+
+    # The 'records' variable here holds the data, either from cache or a fresh fetch.
+    # No *new* API calls are triggered by the following logic.
     if not records:
         st.info("No records to calculate profit from.")
     else:
@@ -297,8 +303,29 @@ with tabs[2]:
                     purchase_price_val = safe_float_conversion(r['Purchase Price'])
                     total_profit += (takeaway_val - purchase_price_val)
 
+            # Display metrics with icons for better readability
             st.metric("Total Spent", f"${total_spent:.2f}")
             st.metric("Total Sold", f"${total_sold:.2f}")
             st.metric("Total Profit", f"${total_profit:.2f}")
+
+            st.write("---") # Separator for better UI
+
+            # --- CSV Download Button ---
+            st.subheader("Download Data")
+            # Convert records (already in memory) to a Pandas DataFrame
+            df = pd.DataFrame(records)
+
+            # Convert DataFrame to CSV string (this is an in-memory operation, no API call)
+            csv = df.to_csv(index=False).encode('utf-8')
+
+            # Create a download button (this is an in-browser operation, no API call)
+            st.download_button(
+                label="📥 Download All Card Data as CSV",
+                data=csv,
+                file_name="Card_Sales_Data.csv",
+                mime="text/csv",
+                help="Click to download all current inventory data as a CSV file. Save it to your 'Card Sales CSVs' folder on your G drive."
+            )
+
         except Exception as e:
-            st.error(f"❌ Failed to calculate totals: {e}")
+            st.error(f"❌ Failed to calculate totals or generate CSV: {e}")
