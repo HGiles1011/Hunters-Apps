@@ -2,17 +2,16 @@ import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date
-import pandas as pd # Import pandas for easy CSV generation
+import pandas as pd
+import plotly.express as px
 
-# --- Google Sheets Setup (Keep as is) ---
+# --- Google Sheets Setup ---
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
 
-# Open the Google Sheet once and store it
 @st.cache_resource
 def get_worksheet():
-    """Authorizes and opens the Google Sheet worksheet, cached globally."""
     try:
         sheet = client.open_by_key("15zMGzqJ1IYsh7i8q8WVaMrHsq0L7ddv9BYsmDHgUHSM")
         return sheet.worksheet("Inventory")
@@ -21,17 +20,12 @@ def get_worksheet():
         st.stop()
         return None
 
-inventory_ws = get_worksheet() # Get the worksheet object once
+inventory_ws = get_worksheet()
 
-# --- Cache the data reading ---
-# Changed: Removed ttl=60. Data will now be cached until the next rerun
-# or until clear_inventory_cache() is explicitly called.
-@st.cache_data
+@st.cache_data(ttl=60)
 def get_inventory_data():
-    """Fetches all records and header from the Google Sheet, with caching."""
     if inventory_ws is None:
         return [], []
-
     try:
         records = inventory_ws.get_all_records()
         header = inventory_ws.row_values(1)
@@ -41,27 +35,24 @@ def get_inventory_data():
         return [], []
 
 def clear_inventory_cache():
-    """Clears the cache for inventory data."""
     st.cache_data.clear()
 
-# --- Initialize session state for controlling data refresh ---
 if 'refresh_data_needed' not in st.session_state:
     st.session_state.refresh_data_needed = False
+if 'current_tab_index' not in st.session_state:
+    st.session_state.current_tab_index = 0
 
-# --- Streamlit UI ---
+if st.session_state.refresh_data_needed:
+    clear_inventory_cache()
+    st.session_state.refresh_data_needed = False
+records, header = get_inventory_data()
+
 st.set_page_config(page_title="Card Inventory Manager", layout="wide")
 st.title("📇 Trading Card Inventory App")
 
-# --- Conditional data fetching ---
-if st.session_state.refresh_data_needed:
-    clear_inventory_cache() # Ensure cache is cleared before fetching
-    st.session_state.refresh_data_needed = False # Reset the flag
-records, header = get_inventory_data()
+tab_options = ["➕ Add New Card", "✏️ Update Sale Info", "📊 Profit Tracker"]
+selected_tab = st.radio("Select View", tab_options, index=st.session_state.current_tab_index, horizontal=True)
 
-
-tabs = st.tabs(["➕ Add New Card", "✏️ Update Sale Info", "📊 Profit Tracker"])
-
-# Helper function for safe float conversion (retained as discussed)
 def safe_float_conversion(money_str):
     if isinstance(money_str, (int, float)):
         return float(money_str)
@@ -73,33 +64,14 @@ def safe_float_conversion(money_str):
             return 0.0
     return 0.0
 
-# TAB 1: Add New Card
-with tabs[0]:
+# --- Tab 1 ---
+if selected_tab == "➕ Add New Card":
     st.header("➕ Add New Card Entry")
-
     with st.form(key='add_card_form'):
         col1, col2, col3 = st.columns(3)
 
-        set_name_options = [
-            "Topps Chrome", "Topps Chrome Update", "Topps Series 1",
-            "Topps Heritage", "Topps Heritage Mini","Topps Opening Day",
-            "Topps Inception", "Bowman Inception", "Topps Big League",
-            "Topps Dynasty", "Topps Gypsy Queen", "Bowman",
-            "Topps Archive Signature Edition", "Topps Tier One",
-            "Topps Finest", "Topps Series 2", "Topps Stadium Club",
-            "Topps Museum Collection", "Topps Japan Edition",
-            "Topps Allen & Ginter", "Bowman Chrome", "Topps Gold Label",
-            "Topps Black Chrome", "Topps Pristine", "Topps Chrome Platinum Anniversary",
-            "Topps Update Series", "Topps Heritage High Number",
-            "Topps Five Star", "Bowman Draft", "Bowman's Best",
-            "Topps Triple Threads", "Bowman Sapphire Edition",
-            "Topps Pro Debut", "Topps Finest Flashbacks"
-        ]
-        numbered_parallel_options = [
-            "None",
-            "/499", "/299", "/250", "/199", "/150", "/99", "/75", "/50", "/25", "/10", "/5", "1/1",
-            "Image Variation", "Case Hit", "Insert"
-        ]
+        set_name_options = ["Topps Chrome", "Topps Chrome Update", "Topps Series 1", "Topps Heritage", "Topps Heritage Mini", "Topps Opening Day", "Topps Inception", "Bowman Inception", "Topps Big League", "Topps Dynasty", "Topps Gypsy Queen", "Bowman", "Topps Archive Signature Edition", "Topps Tier One", "Topps Finest", "Topps Series 2", "Topps Stadium Club", "Topps Museum Collection", "Topps Japan Edition", "Topps Allen & Ginter", "Bowman Chrome", "Topps Gold Label", "Topps Black Chrome", "Topps Pristine", "Topps Chrome Platinum Anniversary", "Topps Update Series", "Topps Heritage High Number", "Topps Five Star", "Bowman Draft", "Bowman's Best", "Topps Triple Threads", "Bowman Sapphire Edition", "Topps Pro Debut", "Topps Finest Flashbacks"]
+        numbered_parallel_options = ["None", "/499", "/299", "/250", "/199", "/150", "/99", "/75", "/50", "/25", "/10", "/5", "1/1", "Image Variation", "Case Hit", "Insert"]
         year_options = list(range(date.today().year, 1949, -1))
 
         with col1:
@@ -107,7 +79,6 @@ with tabs[0]:
             player_name = st.text_input("Player Name")
             card_type = st.selectbox("Set Name", set_name_options)
             numbered_parallel = st.selectbox("Numbered/Parallel", numbered_parallel_options)
-
             cb_auto, cb_patch, cb_graded, cb_listed = st.columns(4)
             with cb_auto:
                 auto = st.checkbox("Auto")
@@ -135,197 +106,135 @@ with tabs[0]:
 
         if submitted:
             if not player_name.strip():
-                st.error("❗ Player Name cannot be empty. Please enter a name to submit the card.")
+                st.error("❗ Player Name cannot be empty.")
             else:
-                row = [
-                    player_name,
-                    card_type,
-                    numbered_parallel,
-                    "Yes" if auto else "No",
-                    "Yes" if patch else "No",
-                    year,
-                    "Yes" if graded else "No",
-                    bought_from,
-                    seller_name,
-                    f"${purchase_price:.2f}",
-                    str(purchase_date),
-                    "Yes" if listed else "No",
-                    int(lot_number)
-                ]
+                row = [player_name, card_type, numbered_parallel, "Yes" if auto else "No", "Yes" if patch else "No", year, "Yes" if graded else "No", bought_from, seller_name, f"${purchase_price:.2f}", str(purchase_date), "Yes" if listed else "No", int(lot_number)]
                 try:
                     if inventory_ws:
                         inventory_ws.append_row(row)
                         st.success("✅ Card entry added to Google Sheet!")
-                        st.session_state.refresh_data_needed = True # Set flag to refresh data on next rerun
-                        st.rerun() # Force a single rerun to apply the data refresh
+                        st.session_state.refresh_data_needed = True
+                        st.session_state.current_tab_index = 0
+                        st.rerun()
                 except Exception as e:
                     st.error(f"❌ Failed to write to Google Sheet: {e}")
 
-# TAB 2: Update Sale Info
-with tabs[1]:
+# --- Tab 2 ---
+elif selected_tab == "✏️ Update Sale Info":
     st.header("✏️ Update Sale Info")
 
     card_options = ["--- Select a Card to Update ---"]
     card_gsheet_row_map = {}
 
     if not records:
-        st.info("No cards found in inventory to update. Add cards using the '➕ Add New Card' tab first.")
+        st.info("No cards found in inventory to update.")
     else:
         for i, record in enumerate(records):
             gsheet_row_number = i + 2
-
-            player = record.get('Player Name', 'N/A')
-            year = record.get('Year', 'N/A')
-            card_type_val = record.get('Set Name', 'N/A')
-            numbered = record.get('Numbered/Parallel', 'None')
-            auto_val = record.get('Auto', 'No')
-            patch_val = record.get('Patch', 'No')
-            graded_val = record.get('Graded', 'No')
-            lot_num = record.get('Lot Number', 'N/A')
-
-            display_name_parts = [player, str(year), card_type_val]
-            if numbered and numbered != 'None':
-                display_name_parts.append(f"({numbered})")
-            if auto_val == 'Yes':
-                display_name_parts.append("(Auto)")
-            if patch_val == 'Yes':
-                display_name_parts.append("(Patch)")
-            if graded_val == 'Yes':
-                display_name_parts.append("(Graded)")
-            if lot_num and lot_num != 'N/A':
-                display_name_parts.append(f"[Lot: {lot_num}]")
-
-            display_name = " - ".join(str(part).strip() for part in display_name_parts if str(part).strip() != '')
-            unique_display_name = f"{display_name} (Row {gsheet_row_number})"
-            card_options.append(unique_display_name)
-            card_gsheet_row_map[unique_display_name] = gsheet_row_number
+            display_name = f"{record.get('Player Name', 'N/A')} - {record.get('Year', 'N/A')} - {record.get('Set Name', 'N/A')} (Row {gsheet_row_number})"
+            card_options.append(display_name)
+            card_gsheet_row_map[display_name] = gsheet_row_number
 
     selected_card_display = st.selectbox("Select Card to Update", card_options, key='update_card_select')
-
-    initial_sold_date = date.today()
-    initial_sold_price = 0.0
-    initial_sale_takeaway = 0.0
-    selected_gsheet_row_index = None
-    selected_record_from_cache = None
-
     if selected_card_display != "--- Select a Card to Update ---":
         selected_gsheet_row_index = card_gsheet_row_map.get(selected_card_display)
-        if selected_gsheet_row_index:
-            try:
-                selected_record_from_cache = records[selected_gsheet_row_index - 2]
-
-                if 'Sold Date' in selected_record_from_cache and selected_record_from_cache['Sold Date']:
-                    try:
-                        initial_sold_date = date.fromisoformat(selected_record_from_cache['Sold Date'])
-                    except ValueError:
-                        pass
-                if 'Sold Price' in selected_record_from_cache and selected_record_from_cache['Sold Price']:
-                    try:
-                        initial_sold_price = safe_float_conversion(selected_record_from_cache['Sold Price'])
-                    except ValueError:
-                        pass
-                if 'Takeaway' in selected_record_from_cache and selected_record_from_cache['Takeaway']:
-                    try:
-                        initial_sale_takeaway = safe_float_conversion(selected_record_from_cache['Takeaway'])
-                    except ValueError:
-                        pass
-            except IndexError:
-                st.warning("Selected card record not found in cache. This might indicate a data sync issue.")
-                selected_gsheet_row_index = None
-            except Exception as e:
-                st.error(f"Error pre-filling data from cache: {e}")
-                selected_gsheet_row_index = None
-        else:
-            st.warning("Could not find row information for the selected card.")
-    elif selected_card_display == "--- Select a Card to Update ---" and len(card_options) > 1:
-        st.info("Please select a card from the dropdown to view/update its sale info.")
-
-    if selected_gsheet_row_index:
-        with st.form(key='update_sale_form'): # Wrap update widgets in a form
-            sold_date = st.date_input("Sold Date", value=initial_sold_date)
-            sold_price = st.number_input("Sold Price ($)", min_value=0.0, format="%.2f", value=initial_sold_price)
-            sale_takeaway = st.number_input("Takeaway from Sale ($)", min_value=0.0, format="%.2f", value=initial_sale_takeaway)
-
+        with st.form(key='update_sale_form'):
+            sold_date = st.date_input("Sold Date", value=date.today())
+            sold_price = st.number_input("Sold Price ($)", min_value=0.0, format="%.2f")
+            sale_takeaway = st.number_input("Takeaway from Sale ($)", min_value=0.0, format="%.2f")
             update_submitted = st.form_submit_button("Update Sale Info")
 
-            if update_submitted:
-                if inventory_ws is None:
-                    st.error("❌ Google Sheet connection not established. Please refresh the app.")
-                else:
-                    try:
-                        sold_date_col = header.index('Sold Date') + 1
-                        sold_price_col = header.index('Sold Price') + 1
-                        takeaway_col = header.index('Takeaway') + 1
+            if update_submitted and inventory_ws:
+                try:
+                    sold_date_col = header.index('Sold Date') + 1
+                    sold_price_col = header.index('Sold Price') + 1
+                    takeaway_col = header.index('Takeaway') + 1
+                    cells_to_update = [
+                        gspread.Cell(selected_gsheet_row_index, sold_date_col, str(sold_date)),
+                        gspread.Cell(selected_gsheet_row_index, sold_price_col, f"${sold_price:.2f}"),
+                        gspread.Cell(selected_gsheet_row_index, takeaway_col, f"${sale_takeaway:.2f}")
+                    ]
+                    inventory_ws.update_cells(cells_to_update)
+                    st.success("✅ Sale info updated!")
+                    st.session_state.refresh_data_needed = True
+                    st.session_state.current_tab_index = 1
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error updating sale info: {e}")
 
-                        values_to_update = [
-                            (selected_gsheet_row_index, sold_date_col, str(sold_date)),
-                            (selected_gsheet_row_index, sold_price_col, f"${sold_price:.2f}"),
-                            (selected_gsheet_row_index, takeaway_col, f"${sale_takeaway:.2f}")
-                        ]
-
-                        cells_to_update = []
-                        for row, col, value in values_to_update:
-                            cells_to_update.append(gspread.Cell(row, col, value))
-
-                        inventory_ws.update_cells(cells_to_update)
-
-                        clean_display_name = selected_card_display.split(' (Row ')[0]
-                        st.success(f"✅ Sale info updated for {clean_display_name}!")
-                        st.session_state.refresh_data_needed = True # Set flag to refresh data on next rerun
-                        st.rerun() # Force a single rerun
-                    except ValueError as ve:
-                        st.error(f"❌ Error: Required column not found in Google Sheet. Please ensure 'Sold Date', 'Sold Price', and 'Takeaway' columns exist. Details: {ve}")
-                    except Exception as e:
-                        st.error(f"❌ Error updating sale info: {e}")
-
-# TAB 3: Profit Tracker
-with tabs[2]:
+# --- Tab 3 ---
+elif selected_tab == "📊 Profit Tracker":
     st.header("📊 Profit Tracker")
-
-    # Add a refresh button - this will trigger an API call to get fresh data
-    if st.button("🔄 Refresh Profit Data"):
+    if st.button("Refresh Profit Data"):
         st.session_state.refresh_data_needed = True
+        st.session_state.current_tab_index = 2
         st.rerun()
 
-    # The 'records' variable here holds the data, either from cache or a fresh fetch.
-    # No *new* API calls are triggered by the following logic.
     if not records:
         st.info("No records to calculate profit from.")
     else:
         try:
-            total_spent = sum(safe_float_conversion(r.get("Purchase Price", "$0")) for r in records if r.get("Purchase Price") is not None)
-            total_sold = sum(safe_float_conversion(r.get("Sold Price", "$0")) for r in records if r.get("Sold Price") is not None)
+            df = pd.DataFrame(records)
+            df['Purchase Price_num'] = df['Purchase Price'].apply(safe_float_conversion)
+            df['Sold Price_num'] = df['Sold Price'].apply(safe_float_conversion)
+            df['Takeaway_num'] = df['Takeaway'].apply(safe_float_conversion)
+            df['Purchase Date_dt'] = pd.to_datetime(df['Date Purchased'], errors='coerce')
+            df['Sold Date_dt'] = pd.to_datetime(df['Sold Date'], errors='coerce')
 
-            total_profit = 0.0
-            for r in records:
-                if r.get('Sold Date') and r.get('Takeaway') is not None and r.get('Purchase Price') is not None:
-                    takeaway_val = safe_float_conversion(r['Takeaway'])
-                    purchase_price_val = safe_float_conversion(r['Purchase Price'])
-                    total_profit += (takeaway_val - purchase_price_val)
+            df['Profit_Per_Item'] = df.apply(
+                lambda row: row['Takeaway_num'] - row['Purchase Price_num']
+                if pd.notna(row['Sold Date_dt']) else 0,
+                axis=1
+            )
 
-            # Display metrics with icons for better readability
+            total_spent = sum(df['Purchase Price_num'])
+            total_sold = sum(df['Sold Price_num'])
+            total_profit = df['Profit_Per_Item'].sum()
+
             st.metric("Total Spent", f"${total_spent:.2f}")
             st.metric("Total Sold", f"${total_sold:.2f}")
             st.metric("Total Profit", f"${total_profit:.2f}")
 
-            st.write("---") # Separator for better UI
-
-            # --- CSV Download Button ---
-            st.subheader("Download Data")
-            # Convert records (already in memory) to a Pandas DataFrame
-            df = pd.DataFrame(records)
-
-            # Convert DataFrame to CSV string (this is an in-memory operation, no API call)
-            csv = df.to_csv(index=False).encode('utf-8')
-
-            # Create a download button (this is an in-browser operation, no API call)
+            # ✅ CSV Download Button
             st.download_button(
-                label="📥 Download All Card Data as CSV",
-                data=csv,
-                file_name="Card_Sales_Data.csv",
-                mime="text/csv",
-                help="Click to download all current inventory data as a CSV file. Save it to your 'Card Sales CSVs' folder on your G drive."
+                label="⬇️ Download Inventory as CSV",
+                data=df.to_csv(index=False).encode('utf-8'),
+                file_name='card_inventory.csv',
+                mime='text/csv'
             )
 
+            st.markdown("---")
+            st.subheader("📈 Monthly Spending")
+            spending_data = df.dropna(subset=['Purchase Date_dt']).copy()
+            spending_data['Purchase Month'] = spending_data['Purchase Date_dt'].dt.to_period('M').astype(str)
+            monthly_spending = spending_data.groupby('Purchase Month')['Purchase Price_num'].sum().reset_index()
+            if not monthly_spending.empty:
+                fig_spending = px.bar(monthly_spending, x='Purchase Month', y='Purchase Price_num',
+                                      title='Total Spending Per Month', template='plotly_white')
+                st.plotly_chart(fig_spending, use_container_width=True)
+            else:
+                st.info("No purchase data for chart.")
+
+            st.subheader("📦 Inventory Status")
+            status_data = pd.DataFrame({
+                'Status': ['In Inventory', 'Sold'],
+                'Count': [df['Sold Date_dt'].isna().sum(), df['Sold Date_dt'].notna().sum()]
+            })
+            fig_inventory = px.pie(status_data, values='Count', names='Status',
+                                   title='Inventory vs. Sold', hole=0.3, template='plotly_white')
+            st.plotly_chart(fig_inventory, use_container_width=True)
+
+            st.subheader("💰 Profit Trend")
+            profit_trend_data = df.dropna(subset=['Sold Date_dt']).copy()
+            profit_trend_data['Sale Month'] = profit_trend_data['Sold Date_dt'].dt.to_period('M').astype(str)
+            monthly_profit = profit_trend_data.groupby('Sale Month')['Profit_Per_Item'].sum().reset_index()
+            if not monthly_profit.empty:
+                fig_profit = px.line(monthly_profit, x='Sale Month', y='Profit_Per_Item',
+                                     title='Monthly Profit Trend', template='plotly_white', markers=True)
+                st.plotly_chart(fig_profit, use_container_width=True)
+            else:
+                st.info("No profit data for chart.")
+
         except Exception as e:
-            st.error(f"❌ Failed to calculate totals or generate CSV: {e}")
+            st.error(f"❌ Error generating charts: {e}")
+
