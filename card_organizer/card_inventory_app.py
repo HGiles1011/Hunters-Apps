@@ -84,6 +84,7 @@ if selected_tab == "➕ Add New Card":
         next_lot_number = max(current_lot_numbers) + 1
     # --- End Calculate next available Lot Number ---
 
+
     with st.form(key='add_card_form'):
         col1, col2, col3 = st.columns(3)
 
@@ -104,6 +105,9 @@ if selected_tab == "➕ Add New Card":
             with cb_graded:
                 graded = st.checkbox("Graded")
             with cb_listed:
+                # Initial state for "Listed" checkbox based on whether it's the first run
+                # This ensures if you clear the form, it reverts to unlisted for new entries
+                # For existing, it will be handled by the update section.
                 listed = st.checkbox("Listed")
 
         with col2:
@@ -116,7 +120,6 @@ if selected_tab == "➕ Add New Card":
             st.markdown("#### Financials & ID")
             purchase_price = st.number_input("Purchase Price ($)", min_value=0.0, format="%.2f")
             purchase_date = st.date_input("Date Purchased", value=date.today())
-            # MODIFIED: Set the default value of lot_number to the calculated next_lot_number
             lot_number = st.number_input("Lot Number", min_value=0, value=next_lot_number)
 
         st.write("---")
@@ -139,10 +142,11 @@ if selected_tab == "➕ Add New Card":
 
 # --- Tab 2 ---
 elif selected_tab == "✏️ Update Sale Info":
-    st.header("✏️ Update Sale Info")
+    st.header("✏️ Update Card Information")
 
     card_options = ["--- Select a Card to Update ---"]
     card_gsheet_row_map = {}
+    card_current_data_map = {} # To store current 'Listed' status
 
     if not records:
         st.info("No cards found in inventory to update.")
@@ -152,10 +156,15 @@ elif selected_tab == "✏️ Update Sale Info":
             display_name = f"{record.get('Player Name', 'N/A')} - {record.get('Year', 'N/A')} - {record.get('Set Name', 'N/A')} - {record.get('Numbered', 'N/A')} - {record.get('Purchase Price', 'N/A')} (Row {gsheet_row_number})"
             card_options.append(display_name)
             card_gsheet_row_map[display_name] = gsheet_row_number
+            card_current_data_map[display_name] = record # Store the whole record for easy access
 
     selected_card_display = st.selectbox("Select Card to Update", card_options, key='update_card_select')
+
     if selected_card_display != "--- Select a Card to Update ---":
         selected_gsheet_row_index = card_gsheet_row_map.get(selected_card_display)
+        current_record = card_current_data_map.get(selected_card_display, {})
+
+        st.markdown("#### Update Sale Information")
         with st.form(key='update_sale_form'):
             sold_date = st.date_input("Sold Date", value=date.today())
             sold_price = st.number_input("Sold Price ($)", min_value=0.0, format="%.2f")
@@ -179,6 +188,27 @@ elif selected_tab == "✏️ Update Sale Info":
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error updating sale info: {e}")
+
+        st.markdown("---")
+        st.markdown("#### Update Listing Status")
+        with st.form(key='update_listed_form'):
+            # Pre-fill checkbox based on current 'Listed' status
+            current_listed_status = current_record.get('Listed', 'No') == 'Yes'
+            new_listed_status = st.checkbox("Is Listed?", value=current_listed_status)
+            update_listed_submitted = st.form_submit_button("Update Listed Status")
+
+            if update_listed_submitted and inventory_ws:
+                try:
+                    listed_col = header.index('Listed') + 1 # Assuming 'Listed' is the column name
+                    new_listed_value = "Yes" if new_listed_status else "No"
+                    
+                    inventory_ws.update_cell(selected_gsheet_row_index, listed_col, new_listed_value)
+                    st.success(f"✅ Card listing status updated to: **{new_listed_value}**!")
+                    st.session_state.refresh_data_needed = True
+                    st.session_state.current_tab_index = 1
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error updating listed status: {e}")
 
 # --- Tab 3 ---
 elif selected_tab == "📊 Profit Tracker":
