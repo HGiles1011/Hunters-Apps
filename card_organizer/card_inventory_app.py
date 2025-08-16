@@ -281,7 +281,7 @@ elif selected_tab == "📊 Profit Tracker":
                 fig_spending = px.bar(daily_spending, x='Purchase Day', y='Purchase Price_num',
                                       title='Total Spending Per Day', template='plotly_white',
                                       hover_data={'Purchase Day': False, 'Purchase Price_num': False}) 
-                fig_spending.update_traces(hovertemplate='Date: %{x}<br>Total Spent: $%{y:.2f}<extra></extra>')
+                fig_spending.update_traces(hovertemplate='Total Spent: $%{y:.2f}<extra></extra>')
                 fig_spending.update_layout(hovermode="x unified") 
 
                 # Automatic 2-month zoom for Daily Spending
@@ -348,7 +348,7 @@ elif selected_tab == "📊 Profit Tracker":
                 fig_profit = px.line(daily_profit_sum, x='Sold Date_dt', y='Cumulative Profit',
                                      title='Cumulative Profit Trend Over Time', template='plotly_white', markers=True,
                                      hover_data={'Sold Date_dt': False, 'Cumulative Profit': False})
-                fig_profit.update_traces(hovertemplate='Date: %{x}<br>Cumulative Profit: $%{y:.2f}<extra></extra>')
+                fig_profit.update_traces(hovertemplate='Cumulative Profit: $%{y:.2f}<extra></extra>')
                 fig_profit.update_layout(hovermode="x unified")
                 st.plotly_chart(fig_profit, use_container_width=True)
             else:
