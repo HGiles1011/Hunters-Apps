@@ -50,7 +50,7 @@ records, header = get_inventory_data()
 st.set_page_config(page_title="Card Inventory Manager", layout="wide")
 st.title("📇 Trading Card Inventory App")
 
-tab_options = ["➕ Add New Card", "✏️ Update Sale Info", "📊 Profit Tracker"]
+tab_options = ["➕ Add New Card", "✏️ Update Card Information", "📊 Profit Tracker"]
 selected_tab = st.radio("Select View", tab_options, index=st.session_state.current_tab_index, horizontal=True)
 
 def safe_float_conversion(money_str):
@@ -72,14 +72,12 @@ if selected_tab == "➕ Add New Card":
     current_lot_numbers = []
     for record in records:
         try:
-            # Assuming 'Lot Number' is the column name in your Google Sheet
-            lot_num = int(record.get('Lot Number', 0)) # Use .get() with a default of 0
+            lot_num = int(record.get('Lot Number', 0))
             current_lot_numbers.append(lot_num)
         except (ValueError, TypeError):
-            # Handle cases where 'Lot Number' might not be a valid number
             continue
     
-    next_lot_number = 1 # Default if no records or no valid lot numbers
+    next_lot_number = 1
     if current_lot_numbers:
         next_lot_number = max(current_lot_numbers) + 1
     # --- End Calculate next available Lot Number ---
@@ -103,11 +101,9 @@ if selected_tab == "➕ Add New Card":
             with cb_patch:
                 patch = st.checkbox("Patch")
             with cb_graded:
-                graded = st.checkbox("Graded")
+                # Retained for now as per original code, but "graded" status update is removed below
+                graded = st.checkbox("Graded") 
             with cb_listed:
-                # Initial state for "Listed" checkbox based on whether it's the first run
-                # This ensures if you clear the form, it reverts to unlisted for new entries
-                # For existing, it will be handled by the update section.
                 listed = st.checkbox("Listed")
 
         with col2:
@@ -129,7 +125,10 @@ if selected_tab == "➕ Add New Card":
             if not player_name.strip():
                 st.error("❗ Player Name cannot be empty.")
             else:
-                row = [player_name, card_type, numbered_parallel, "Yes" if auto else "No", "Yes" if patch else "No", year, "Yes" if graded else "No", bought_from, seller_name, f"${purchase_price:.2f}", str(purchase_date), "Yes" if listed else "No", int(lot_number)]
+                row = [player_name, card_type, numbered_parallel, "Yes" if auto else "No", 
+                       "Yes" if patch else "No", year, "Yes" if graded else "No", bought_from, 
+                       seller_name, f"${purchase_price:.2f}", 
+                       str(purchase_date), "Yes" if listed else "No", int(lot_number)]
                 try:
                     if inventory_ws:
                         inventory_ws.append_row(row)
@@ -141,12 +140,12 @@ if selected_tab == "➕ Add New Card":
                     st.error(f"❌ Failed to write to Google Sheet: {e}")
 
 # --- Tab 2 ---
-elif selected_tab == "✏️ Update Sale Info":
+elif selected_tab == "✏️ Update Card Information":
     st.header("✏️ Update Card Information")
 
     card_options = ["--- Select a Card to Update ---"]
     card_gsheet_row_map = {}
-    card_current_data_map = {} # To store current 'Listed' status
+    card_current_data_map = {}
 
     if not records:
         st.info("No cards found in inventory to update.")
@@ -156,13 +155,36 @@ elif selected_tab == "✏️ Update Sale Info":
             display_name = f"{record.get('Player Name', 'N/A')} - {record.get('Year', 'N/A')} - {record.get('Set Name', 'N/A')} - {record.get('Numbered', 'N/A')} - {record.get('Purchase Price', 'N/A')} (Row {gsheet_row_number})"
             card_options.append(display_name)
             card_gsheet_row_map[display_name] = gsheet_row_number
-            card_current_data_map[display_name] = record # Store the whole record for easy access
+            card_current_data_map[display_name] = record
 
     selected_card_display = st.selectbox("Select Card to Update", card_options, key='update_card_select')
 
     if selected_card_display != "--- Select a Card to Update ---":
         selected_gsheet_row_index = card_gsheet_row_map.get(selected_card_display)
         current_record = card_current_data_map.get(selected_card_display, {})
+
+        # --- Update Listing Status Section (Now standalone and at top) ---
+        st.markdown("#### Update Listing Status")
+        with st.form(key='update_listed_form'): # Renamed key for clarity
+            current_listed_status = current_record.get('Listed', 'No') == 'Yes'
+            new_listed_status = st.checkbox("Is Listed?", value=current_listed_status)
+            update_listed_submitted = st.form_submit_button("Update Listed Status")
+
+            if update_listed_submitted and inventory_ws:
+                try:
+                    listed_col = header.index('Listed') + 1
+                    new_listed_value = "Yes" if new_listed_status else "No"
+                    
+                    inventory_ws.update_cell(selected_gsheet_row_index, listed_col, new_listed_value)
+                    st.success(f"✅ Card listing status updated to: **{new_listed_value}**!")
+                    st.session_state.refresh_data_needed = True
+                    st.session_state.current_tab_index = 1
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error updating listed status: {e}")
+        # --- End Update Listing Status Section ---
+
+        st.markdown("---") # Separator between status and sale info
 
         st.markdown("#### Update Sale Information")
         with st.form(key='update_sale_form'):
@@ -188,27 +210,6 @@ elif selected_tab == "✏️ Update Sale Info":
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error updating sale info: {e}")
-
-        st.markdown("---")
-        st.markdown("#### Update Listing Status")
-        with st.form(key='update_listed_form'):
-            # Pre-fill checkbox based on current 'Listed' status
-            current_listed_status = current_record.get('Listed', 'No') == 'Yes'
-            new_listed_status = st.checkbox("Is Listed?", value=current_listed_status)
-            update_listed_submitted = st.form_submit_button("Update Listed Status")
-
-            if update_listed_submitted and inventory_ws:
-                try:
-                    listed_col = header.index('Listed') + 1 # Assuming 'Listed' is the column name
-                    new_listed_value = "Yes" if new_listed_status else "No"
-                    
-                    inventory_ws.update_cell(selected_gsheet_row_index, listed_col, new_listed_value)
-                    st.success(f"✅ Card listing status updated to: **{new_listed_value}**!")
-                    st.session_state.refresh_data_needed = True
-                    st.session_state.current_tab_index = 1
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error updating listed status: {e}")
 
 # --- Tab 3 ---
 elif selected_tab == "📊 Profit Tracker":
