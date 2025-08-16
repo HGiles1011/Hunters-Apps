@@ -67,6 +67,23 @@ def safe_float_conversion(money_str):
 # --- Tab 1 ---
 if selected_tab == "➕ Add New Card":
     st.header("➕ Add New Card Entry")
+
+    # --- Calculate next available Lot Number ---
+    current_lot_numbers = []
+    for record in records:
+        try:
+            # Assuming 'Lot Number' is the column name in your Google Sheet
+            lot_num = int(record.get('Lot Number', 0)) # Use .get() with a default of 0
+            current_lot_numbers.append(lot_num)
+        except (ValueError, TypeError):
+            # Handle cases where 'Lot Number' might not be a valid number
+            continue
+    
+    next_lot_number = 1 # Default if no records or no valid lot numbers
+    if current_lot_numbers:
+        next_lot_number = max(current_lot_numbers) + 1
+    # --- End Calculate next available Lot Number ---
+
     with st.form(key='add_card_form'):
         col1, col2, col3 = st.columns(3)
 
@@ -99,7 +116,8 @@ if selected_tab == "➕ Add New Card":
             st.markdown("#### Financials & ID")
             purchase_price = st.number_input("Purchase Price ($)", min_value=0.0, format="%.2f")
             purchase_date = st.date_input("Date Purchased", value=date.today())
-            lot_number = st.number_input("Lot Number", min_value=0)
+            # MODIFIED: Set the default value of lot_number to the calculated next_lot_number
+            lot_number = st.number_input("Lot Number", min_value=0, value=next_lot_number)
 
         st.write("---")
         submitted = st.form_submit_button("Submit Card Entry")
@@ -237,4 +255,3 @@ elif selected_tab == "📊 Profit Tracker":
 
         except Exception as e:
             st.error(f"❌ Error generating charts: {e}")
-
