@@ -1,7 +1,7 @@
 import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import date
+from datetime import date, timedelta
 import pandas as pd
 import plotly.express as px
 
@@ -101,7 +101,6 @@ if selected_tab == "➕ Add New Card":
             with cb_patch:
                 patch = st.checkbox("Patch")
             with cb_graded:
-                # Retained for now as per original code, but "graded" status update is removed below
                 graded = st.checkbox("Graded") 
             with cb_listed:
                 listed = st.checkbox("Listed")
@@ -165,7 +164,7 @@ elif selected_tab == "✏️ Update Card Information":
 
         # --- Update Listing Status Section (Now standalone and at top) ---
         st.markdown("#### Update Listing Status")
-        with st.form(key='update_listed_form'): # Renamed key for clarity
+        with st.form(key='update_listed_form'):
             current_listed_status = current_record.get('Listed', 'No') == 'Yes'
             new_listed_status = st.checkbox("Is Listed?", value=current_listed_status)
             update_listed_submitted = st.form_submit_button("Update Listed Status")
@@ -252,37 +251,109 @@ elif selected_tab == "📊 Profit Tracker":
                 mime='text/csv'
             )
 
-            st.markdown("---")
-            st.subheader("📈 Monthly Spending")
-            spending_data = df.dropna(subset=['Purchase Date_dt']).copy()
-            spending_data['Purchase Month'] = spending_data['Purchase Date_dt'].dt.to_period('M').astype(str)
-            monthly_spending = spending_data.groupby('Purchase Month')['Purchase Price_num'].sum().reset_index()
-            if not monthly_spending.empty:
-                fig_spending = px.bar(monthly_spending, x='Purchase Month', y='Purchase Price_num',
-                                      title='Total Spending Per Month', template='plotly_white')
-                st.plotly_chart(fig_spending, use_container_width=True)
-            else:
-                st.info("No purchase data for chart.")
+            st.markdown("---") # Separator for metrics and charts
 
+            # --- Inventory Status (Pie Chart) - Moved to top ---
             st.subheader("📦 Inventory Status")
             status_data = pd.DataFrame({
                 'Status': ['In Inventory', 'Sold'],
                 'Count': [df['Sold Date_dt'].isna().sum(), df['Sold Date_dt'].notna().sum()]
             })
             fig_inventory = px.pie(status_data, values='Count', names='Status',
-                                   title='Inventory vs. Sold', hole=0.3, template='plotly_white')
+                                   title='Inventory vs. Sold', hole=0.3, template='plotly_white',
+                                   hover_data={'Count': False, 'Status': False})
+            fig_inventory.update_traces(hovertemplate='Status: %{label}<br>Count: %{value}<extra></extra>')
+            fig_inventory.update_traces(textinfo='percent+label', textposition='outside',
+                                         texttemplate='%{label}<br>%{percent}')
+            fig_inventory.update_layout(uniformtext_minsize=10, uniformtext_mode='hide')
             st.plotly_chart(fig_inventory, use_container_width=True)
+            # --- End Inventory Status ---
 
-            st.subheader("💰 Profit Trend")
+            st.markdown("---") # Separator between charts
+
+            # --- Daily Spending Chart ---
+            st.subheader("📈 Daily Spending")
+            spending_data = df.dropna(subset=['Purchase Date_dt']).copy()
+            spending_data['Purchase Day'] = spending_data['Purchase Date_dt'].dt.date
+            daily_spending = spending_data.groupby('Purchase Day')['Purchase Price_num'].sum().reset_index()
+
+            if not daily_spending.empty:
+                fig_spending = px.bar(daily_spending, x='Purchase Day', y='Purchase Price_num',
+                                      title='Total Spending Per Day', template='plotly_white',
+                                      hover_data={'Purchase Day': False, 'Purchase Price_num': False}) 
+                fig_spending.update_traces(hovertemplate='Date: %{x}<br>Total Spent: $%{y:.2f}<extra></extra>')
+                fig_spending.update_layout(hovermode="x unified") 
+
+                # Automatic 2-month zoom for Daily Spending
+                if not daily_spending['Purchase Day'].empty:
+                    max_date = daily_spending['Purchase Day'].max()
+                    min_date_2_months_ago = max_date - timedelta(days=60) # Approximately 2 months
+                    fig_spending.update_xaxes(range=[min_date_2_months_ago, max_date])
+
+                st.plotly_chart(fig_spending, use_container_width=True)
+            else:
+                st.info("No purchase data for daily chart.")
+            # --- End Daily Spending Chart ---
+
+            st.markdown("---") # Separator between charts
+
+            # --- Monthly Spending Chart ---
+            st.subheader("📈 Monthly Spending")
+            spending_data_monthly = df.dropna(subset=['Purchase Date_dt']).copy()
+            # Sort by date before creating 'Purchase Month' to ensure correct period order
+            spending_data_monthly = spending_data_monthly.sort_values(by='Purchase Date_dt')
+            # Format month as "Mon YYYY" for better display
+            spending_data_monthly['Purchase Month'] = spending_data_monthly['Purchase Date_dt'].dt.strftime('%b %Y')
+            monthly_spending = spending_data_monthly.groupby('Purchase Month')['Purchase Price_num'].sum().reset_index()
+
+            if not monthly_spending.empty:
+                # To ensure chronological order on x-axis, re-index based on original month period
+                monthly_spending['Sort Key'] = pd.to_datetime(monthly_spending['Purchase Month'], format='%b %Y')
+                monthly_spending = monthly_spending.sort_values(by='Sort Key').drop(columns='Sort Key')
+
+                fig_monthly_spending = px.bar(monthly_spending, x='Purchase Month', y='Purchase Price_num',
+                                              title='Total Spending Per Month', template='plotly_white',
+                                              hover_data={'Purchase Month': False, 'Purchase Price_num': False})
+                # Custom hover template to show only total spent
+                fig_monthly_spending.update_traces(hovertemplate='Total Spent: $%{y:.2f}<extra></extra>')
+                fig_monthly_spending.update_layout(hovermode="x unified")
+
+                # Automatic 2-year zoom for Monthly Spending
+                if not monthly_spending['Purchase Month'].empty:
+                    # Convert month strings back to datetime objects for range calculation
+                    monthly_dates = pd.to_datetime(monthly_spending['Purchase Month'], format='%b %Y')
+                    max_month_date = monthly_dates.max()
+                    # Calculate 2 years ago from the latest month (approximately 730 days)
+                    min_month_date_2_years_ago = max_month_date - timedelta(days=2*365)
+                    fig_monthly_spending.update_xaxes(range=[min_month_date_2_years_ago, max_month_date])
+
+                st.plotly_chart(fig_monthly_spending, use_container_width=True)
+            else:
+                st.info("No purchase data for monthly chart.")
+            # --- End Monthly Spending Chart ---
+
+            st.markdown("---") # Separator between charts
+
+            # --- Cumulative Profit Trend Chart ---
+            st.subheader("💰 Cumulative Profit Trend")
             profit_trend_data = df.dropna(subset=['Sold Date_dt']).copy()
-            profit_trend_data['Sale Month'] = profit_trend_data['Sold Date_dt'].dt.to_period('M').astype(str)
-            monthly_profit = profit_trend_data.groupby('Sale Month')['Profit_Per_Item'].sum().reset_index()
-            if not monthly_profit.empty:
-                fig_profit = px.line(monthly_profit, x='Sale Month', y='Profit_Per_Item',
-                                     title='Monthly Profit Trend', template='plotly_white', markers=True)
+            # Sort by Sold Date for correct cumulative sum calculation
+            profit_trend_data = profit_trend_data.sort_values(by='Sold Date_dt')
+            
+            # Group by day and sum daily profits, then calculate cumulative sum
+            daily_profit_sum = profit_trend_data.groupby('Sold Date_dt')['Profit_Per_Item'].sum().reset_index()
+            daily_profit_sum['Cumulative Profit'] = daily_profit_sum['Profit_Per_Item'].cumsum()
+
+            if not daily_profit_sum.empty:
+                fig_profit = px.line(daily_profit_sum, x='Sold Date_dt', y='Cumulative Profit',
+                                     title='Cumulative Profit Trend Over Time', template='plotly_white', markers=True,
+                                     hover_data={'Sold Date_dt': False, 'Cumulative Profit': False})
+                fig_profit.update_traces(hovertemplate='Date: %{x}<br>Cumulative Profit: $%{y:.2f}<extra></extra>')
+                fig_profit.update_layout(hovermode="x unified")
                 st.plotly_chart(fig_profit, use_container_width=True)
             else:
-                st.info("No profit data for chart.")
+                st.info("No profit data for cumulative chart.")
+            # --- End Cumulative Profit Trend Chart ---
 
         except Exception as e:
             st.error(f"❌ Error generating charts: {e}")
