@@ -50,7 +50,8 @@ records, header = get_inventory_data()
 st.set_page_config(page_title="Card Inventory Manager", layout="wide")
 st.title("📇 Trading Card Inventory App")
 
-tab_options = ["➕ Add New Card", "✏️ Update Card Information", "📊 Profit Tracker"]
+# --- Updated tab_options to include "All Cards View" ---
+tab_options = ["➕ Add New Card", "✏️ Update Card Information", "📊 Profit Tracker", "📋 Cards Inventory"]
 selected_tab = st.radio("Select View", tab_options, index=st.session_state.current_tab_index, horizontal=True)
 
 def safe_float_conversion(money_str):
@@ -138,7 +139,7 @@ if selected_tab == "➕ Add New Card":
                 except Exception as e:
                     st.error(f"❌ Failed to write to Google Sheet: {e}")
 
-# --- Tab 2 ---
+# --- Tab 2: Update Card Information (Combined Sale Info & Listing Status) ---
 elif selected_tab == "✏️ Update Card Information":
     st.header("✏️ Update Card Information")
 
@@ -162,55 +163,48 @@ elif selected_tab == "✏️ Update Card Information":
         selected_gsheet_row_index = card_gsheet_row_map.get(selected_card_display)
         current_record = card_current_data_map.get(selected_card_display, {})
 
-        # --- Update Listing Status Section (Now standalone and at top) ---
-        st.markdown("#### Update Listing Status")
-        with st.form(key='update_listed_form'):
+        with st.form(key='update_card_info_form'):
+            st.markdown("#### Update Listing Status")
             current_listed_status = current_record.get('Listed', 'No') == 'Yes'
             new_listed_status = st.checkbox("Is Listed?", value=current_listed_status)
-            update_listed_submitted = st.form_submit_button("Update Listed Status")
 
-            if update_listed_submitted and inventory_ws:
-                try:
-                    listed_col = header.index('Listed') + 1
-                    new_listed_value = "Yes" if new_listed_status else "No"
-                    
-                    inventory_ws.update_cell(selected_gsheet_row_index, listed_col, new_listed_value)
-                    st.success(f"✅ Card listing status updated to: **{new_listed_value}**!")
-                    st.session_state.refresh_data_needed = True
-                    st.session_state.current_tab_index = 1
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error updating listed status: {e}")
-        # --- End Update Listing Status Section ---
+            st.markdown("#### Update Sale Information")
+            sold_date_val = pd.to_datetime(current_record.get('Sold Date')).date() if 'Sold Date' in current_record and current_record.get('Sold Date') else date.today()
+            sold_price_val = safe_float_conversion(current_record.get('Sold Price', 0.0))
+            sale_takeaway_val = safe_float_conversion(current_record.get('Takeaway', 0.0))
 
-        st.markdown("---") # Separator between status and sale info
-
-        st.markdown("#### Update Sale Information")
-        with st.form(key='update_sale_form'):
-            sold_date = st.date_input("Sold Date", value=date.today())
-            sold_price = st.number_input("Sold Price ($)", min_value=0.0, format="%.2f")
-            sale_takeaway = st.number_input("Takeaway from Sale ($)", min_value=0.0, format="%.2f")
-            update_submitted = st.form_submit_button("Update Sale Info")
+            sold_date = st.date_input("Sold Date", value=sold_date_val)
+            sold_price = st.number_input("Sold Price ($)", min_value=0.0, format="%.2f", value=sold_price_val)
+            sale_takeaway = st.number_input("Takeaway from Sale ($)", min_value=0.0, format="%.2f", value=sale_takeaway_val)
+            
+            update_submitted = st.form_submit_button("Apply Updates")
 
             if update_submitted and inventory_ws:
                 try:
+                    cells_to_update = []
+                    
+                    # Update Listed Status
+                    listed_col = header.index('Listed') + 1
+                    new_listed_value = "Yes" if new_listed_status else "No"
+                    cells_to_update.append(gspread.Cell(selected_gsheet_row_index, listed_col, new_listed_value))
+
+                    # Update Sale Info
                     sold_date_col = header.index('Sold Date') + 1
                     sold_price_col = header.index('Sold Price') + 1
                     takeaway_col = header.index('Takeaway') + 1
-                    cells_to_update = [
-                        gspread.Cell(selected_gsheet_row_index, sold_date_col, str(sold_date)),
-                        gspread.Cell(selected_gsheet_row_index, sold_price_col, f"${sold_price:.2f}"),
-                        gspread.Cell(selected_gsheet_row_index, takeaway_col, f"${sale_takeaway:.2f}")
-                    ]
+                    cells_to_update.append(gspread.Cell(selected_gsheet_row_index, sold_date_col, str(sold_date)))
+                    cells_to_update.append(gspread.Cell(selected_gsheet_row_index, sold_price_col, f"${sold_price:.2f}"))
+                    cells_to_update.append(gspread.Cell(selected_gsheet_row_index, takeaway_col, f"${sale_takeaway:.2f}"))
+                    
                     inventory_ws.update_cells(cells_to_update)
-                    st.success("✅ Sale info updated!")
+                    st.success("✅ Card information updated!")
                     st.session_state.refresh_data_needed = True
                     st.session_state.current_tab_index = 1
                     st.rerun()
                 except Exception as e:
-                    st.error(f"❌ Error updating sale info: {e}")
+                    st.error(f"❌ Error updating card info: {e}")
 
-# --- Tab 3 ---
+# --- Tab 3: Profit Tracker ---
 elif selected_tab == "📊 Profit Tracker":
     st.header("📊 Profit Tracker")
     if st.button("Refresh Profit Data"):
@@ -253,7 +247,7 @@ elif selected_tab == "📊 Profit Tracker":
 
             st.markdown("---") # Separator for metrics and charts
 
-            # --- Inventory Status (Pie Chart) - Moved to top ---
+            # --- Inventory Status (Pie Chart) ---
             st.subheader("📦 Inventory Status")
             status_data = pd.DataFrame({
                 'Status': ['In Inventory', 'Sold'],
@@ -281,7 +275,7 @@ elif selected_tab == "📊 Profit Tracker":
                 fig_spending = px.bar(daily_spending, x='Purchase Day', y='Purchase Price_num',
                                       title='Total Spending Per Day', template='plotly_white',
                                       hover_data={'Purchase Day': False, 'Purchase Price_num': False}) 
-                fig_spending.update_traces(hovertemplate='Total Spent: $%{y:.2f}<extra></extra>')
+                fig_spending.update_traces(hovertemplate='Date: %{x}<br>Total Spent: $%{y:.2f}<extra></extra>')
                 fig_spending.update_layout(hovermode="x unified") 
 
                 # Automatic 2-month zoom for Daily Spending
@@ -313,9 +307,9 @@ elif selected_tab == "📊 Profit Tracker":
 
                 fig_monthly_spending = px.bar(monthly_spending, x='Purchase Month', y='Purchase Price_num',
                                               title='Total Spending Per Month', template='plotly_white',
-                                              hover_data={'Purchase Month': False, 'Purchase Price_num': False})
-                # Custom hover template to show only total spent
-                fig_monthly_spending.update_traces(hovertemplate='Total Spent: $%{y:.2f}<extra></extra>')
+                                              hover_data={'Purchase Month': False})
+                # Custom hover template to show only total spent, correctly formatted month
+                fig_monthly_spending.update_traces(hovertemplate='Month: %{x}<br>Total Spent: $%{y:.2f}<extra></extra>')
                 fig_monthly_spending.update_layout(hovermode="x unified")
 
                 # Automatic 2-year zoom for Monthly Spending
@@ -347,9 +341,9 @@ elif selected_tab == "📊 Profit Tracker":
             if not daily_profit_sum.empty:
                 fig_profit = px.line(daily_profit_sum, x='Sold Date_dt', y='Cumulative Profit',
                                      title='Cumulative Profit Trend Over Time', template='plotly_white', markers=True,
-                                     hover_data={'Sold Date_dt': False, 'Cumulative Profit': False})
-                fig_profit.update_traces(hovertemplate='Cumulative Profit: $%{y:.2f}<extra></extra>')
-                fig_profit.update_layout(hovermode="x unified")
+                                     hover_data={'Sold Date_dt': False}) 
+                fig_profit.update_traces(hovertemplate='Date: %{x|%b %d, %Y}<br>Cumulative Profit: $%{y:.2f}<extra></extra>')
+                fig_profit.update_layout(hovermode="x unified", hoverlabel_namelength=-1)
                 st.plotly_chart(fig_profit, use_container_width=True)
             else:
                 st.info("No profit data for cumulative chart.")
@@ -357,3 +351,16 @@ elif selected_tab == "📊 Profit Tracker":
 
         except Exception as e:
             st.error(f"❌ Error generating charts: {e}")
+
+# --- Tab 4: All Cards View ---
+elif selected_tab == "📋 Cards Inventory":
+    st.header("📋 Cards in Inventory")
+    if not records:
+        st.info("No cards found in inventory.")
+    else:
+        # Convert records to DataFrame for display
+        df_all_cards = pd.DataFrame(records)
+        # Display the DataFrame, spanning to the bottom of the page
+        # Set height to a large number or None to remove vertical scrollbar if you want it to expand fully.
+        # Be cautious with 'height=None' for very large datasets as it might make the page extremely long.
+        st.dataframe(df_all_cards, use_container_width=True, height=600) # Increased height for more span
