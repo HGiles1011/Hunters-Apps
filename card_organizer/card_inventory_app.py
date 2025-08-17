@@ -50,7 +50,6 @@ records, header = get_inventory_data()
 st.set_page_config(page_title="Card Inventory Manager", layout="wide")
 st.title("📇 Trading Card Inventory App")
 
-# --- Updated tab_options to include "All Cards View" ---
 tab_options = ["➕ Add New Card", "✏️ Update Card Information", "📊 Profit Tracker", "📋 Cards Inventory"]
 selected_tab = st.radio("Select View", tab_options, index=st.session_state.current_tab_index, horizontal=True)
 
@@ -163,12 +162,44 @@ elif selected_tab == "✏️ Update Card Information":
         selected_gsheet_row_index = card_gsheet_row_map.get(selected_card_display)
         current_record = card_current_data_map.get(selected_card_display, {})
 
-        with st.form(key='update_card_info_form'):
-            st.markdown("#### Update Listing Status")
-            current_listed_status = current_record.get('Listed', 'No') == 'Yes'
-            new_listed_status = st.checkbox("Is Listed?", value=current_listed_status)
+        # --- New Form for Status Updates ---
+        st.markdown("#### Update Status")
+        with st.form(key='update_status_form'):
+            col_listed, col_graded, _ = st.columns([1, 1, 6]) 
+            with col_listed:
+                current_listed_status = current_record.get('Listed', 'No') == 'Yes'
+                new_listed_status = st.checkbox("Is Listed?", value=current_listed_status, key='listed_checkbox')
+            with col_graded:
+                current_graded_status = current_record.get('Graded', 'No') == 'Yes'
+                new_graded_status = st.checkbox("Is Graded?", value=current_graded_status, key='graded_checkbox')
+            
+            status_update_submitted = st.form_submit_button("Update Card Status")
 
-            st.markdown("#### Update Sale Information")
+            if status_update_submitted and inventory_ws:
+                try:
+                    cells_to_update = []
+                    
+                    listed_col = header.index('Listed') + 1
+                    new_listed_value = "Yes" if new_listed_status else "No"
+                    cells_to_update.append(gspread.Cell(selected_gsheet_row_index, listed_col, new_listed_value))
+
+                    graded_col = header.index('Graded') + 1
+                    new_graded_value = "Yes" if new_graded_status else "No"
+                    cells_to_update.append(gspread.Cell(selected_gsheet_row_index, graded_col, new_graded_value))
+                    
+                    inventory_ws.update_cells(cells_to_update)
+                    st.success("✅ Card status updated!")
+                    st.session_state.refresh_data_needed = True
+                    st.session_state.current_tab_index = 1
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error updating card status: {e}")
+        # --- End New Form for Status Updates ---
+
+
+        # --- Original Form for Sale Information ---
+        st.markdown("#### Update Sale Information")
+        with st.form(key='update_sale_info_form'): # Renamed key to distinguish
             sold_date_val = pd.to_datetime(current_record.get('Sold Date')).date() if 'Sold Date' in current_record and current_record.get('Sold Date') else date.today()
             sold_price_val = safe_float_conversion(current_record.get('Sold Price', 0.0))
             sale_takeaway_val = safe_float_conversion(current_record.get('Takeaway', 0.0))
@@ -177,18 +208,13 @@ elif selected_tab == "✏️ Update Card Information":
             sold_price = st.number_input("Sold Price ($)", min_value=0.0, format="%.2f", value=sold_price_val)
             sale_takeaway = st.number_input("Takeaway from Sale ($)", min_value=0.0, format="%.2f", value=sale_takeaway_val)
             
-            update_submitted = st.form_submit_button("Apply Updates")
+            sale_update_submitted = st.form_submit_button("Update Sale Information") # Renamed button
 
-            if update_submitted and inventory_ws:
+            if sale_update_submitted and inventory_ws:
                 try:
                     cells_to_update = []
                     
-                    # Update Listed Status
-                    listed_col = header.index('Listed') + 1
-                    new_listed_value = "Yes" if new_listed_status else "No"
-                    cells_to_update.append(gspread.Cell(selected_gsheet_row_index, listed_col, new_listed_value))
-
-                    # Update Sale Info
+                    # Only update sale info here
                     sold_date_col = header.index('Sold Date') + 1
                     sold_price_col = header.index('Sold Price') + 1
                     takeaway_col = header.index('Takeaway') + 1
@@ -197,12 +223,13 @@ elif selected_tab == "✏️ Update Card Information":
                     cells_to_update.append(gspread.Cell(selected_gsheet_row_index, takeaway_col, f"${sale_takeaway:.2f}"))
                     
                     inventory_ws.update_cells(cells_to_update)
-                    st.success("✅ Card information updated!")
+                    st.success("✅ Sale information updated!")
                     st.session_state.refresh_data_needed = True
                     st.session_state.current_tab_index = 1
                     st.rerun()
                 except Exception as e:
-                    st.error(f"❌ Error updating card info: {e}")
+                    st.error(f"❌ Error updating sale info: {e}")
+        # --- End Original Form for Sale Information ---
 
 # --- Tab 3: Profit Tracker ---
 elif selected_tab == "📊 Profit Tracker":
@@ -352,15 +379,20 @@ elif selected_tab == "📊 Profit Tracker":
         except Exception as e:
             st.error(f"❌ Error generating charts: {e}")
 
-# --- Tab 4: All Cards View ---
+# --- Tab 4: Cards Inventory ---
 elif selected_tab == "📋 Cards Inventory":
-    st.header("📋 Cards in Inventory")
+    st.header("📋 All Cards in Inventory")
     if not records:
         st.info("No cards found in inventory.")
     else:
         # Convert records to DataFrame for display
         df_all_cards = pd.DataFrame(records)
-        # Display the DataFrame, spanning to the bottom of the page
-        # Set height to a large number or None to remove vertical scrollbar if you want it to expand fully.
-        # Be cautious with 'height=None' for very large datasets as it might make the page extremely long.
-        st.dataframe(df_all_cards, use_container_width=True, height=600) # Increased height for more span
+        st.dataframe(df_all_cards, use_container_width=True, height=600)
+
+        # ✅ CSV Download Button for All Cards Inventory
+        st.download_button(
+            label="⬇️ Download All Cards as CSV",
+            data=df_all_cards.to_csv(index=False).encode('utf-8'),
+            file_name='all_cards_inventory.csv',
+            mime='text/csv'
+        )
