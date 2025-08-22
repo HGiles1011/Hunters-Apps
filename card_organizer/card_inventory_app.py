@@ -79,13 +79,14 @@ def safe_float_conversion(money_str):
     return 0.0
 
 # --- Football Card Definitions ---
-football_sets = ["Prizm", "Optic", "Select", "Mosaic", "Contenders", "Spectra", "Flawless", "National Treasures"]
+football_sets = ["Prizm", "Optic", "Select", "Mosaic", "Contenders", "Spectra", "Unparalleled", "Black", "Flawless", "National Treasures"]
 football_parallels = [
     "Base", "Silver", "Green", "Green Scope", "Green Wave", "Green Ice", "Orange", "Orange /249", "Orange Scope", 
-    "Orange Wave", "Orange Ice", "Black & White Checker", "Red & Black Checker", "Red Pandora", "Black Pandora", 
-    "Gold /10", "Gold Vinyl /5", "Green Shimmer /5", "Camo /25", "Red /299", "Blue /199", "Purple /99", 
-    "Orange /75", "White /35", "Red & Yellow /44", "White Knight /3", "Black Finite 1/1", 
-    "Black Stars 1/1", "Gold Shimmer /10", "Choice Nebula 1/1", "Downtown", "Manga (SSP)", "Color Blast (SSP)"
+    "Orange Wave", "Orange Ice", "Black & White Checker", "Red & Black Checker", "Red Pandora", "Red Stars", "Red Camo",
+    "Red", "Black Pandora", "Dragon Scale", "/99", "Gold /10", "Gold Vinyl /5", "Green Shimmer /5", "Camo /25", "Hyper /25", 
+    "Red /299", "Blue /199","Purple /99", "Orange /75", "White /35", "White /25", "Red & Yellow /44", 
+    "White Knight /3", "Black Finite 1/1", "Black Stars 1/1", "Gold Shimmer /10", "Choice Nebula 1/1",
+    "Downtown", "Manga (SSP)", "Color Blast (SSP)"
 ]
 
 # --- Baseball Card Definitions ---
