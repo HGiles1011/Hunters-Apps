@@ -91,7 +91,7 @@ football_parallels = [
 
 # --- Baseball Card Definitions ---
 baseball_sets = ["Topps Chrome", "Topps Chrome Update", "Topps Chrome Cosmic", "Topps Chrome Logofractor", "Bowman Chrome", "Bowman Paper", "Topps Series 1", "Topps Heritage", "Topps Diamond Icons", "Topps Heritage Mini", "Topps Opening Day", "Topps Inception", "Bowman Inception", "Topps Big League", "Topps Dynasty", "Topps Gypsy Queen", "Topps Archive Signature Edition", "Topps Tier One", "Topps Finest", "Topps Series 2", "Topps Stadium Club", "Topps Museum Collection", "Topps Japan Edition", "Topps Allen & Ginter", "Topps Gold Label", "Topps Black Chrome", "Topps Pristine", "Topps Chrome Platinum Anniversary", "Topps Update Series", "Topps Heritage High Number", "Topps Five Star", "Bowman's Best", "Topps Triple Threads", "Bowman Sapphire Edition", "Topps Chrome Pro Debut", "Topps Pro Debut", "Topps Finest Flashbacks"]
-baseball_parallels = ["Base", "/499", "/299", "/250", "/199", "/150", "/99", "/75", "/71", "/50", "/25", "/10", "/5", "1/1", "Image Variation", "Case Hit", "Insert", "Purple"]
+baseball_parallels = ["Base", "/499", "/299", "/250", "/199", "/150", "/99", "/75", "/71", "/50", "/25", "/10", "/5", "1/1", "Image Variation", "Case Hit", "Insert", "Purple", "Raywave", "Refractor", "XFractor"]
 
 
 # --- Tab 1: Add New Card ---
